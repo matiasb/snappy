@@ -74,7 +74,7 @@ func (t *remoteRepoTestSuite) TestDownloadOK(c *C) {
 	snap.AnonDownloadURL = "anon-url"
 	snap.DownloadURL = "AUTH-URL"
 
-	path, err := t.store.Download(snap, nil)
+	path, err := t.store.Download(snap, nil, nil)
 	c.Assert(err, IsNil)
 	defer os.Remove(path)
 
@@ -124,7 +124,7 @@ func (t *remoteRepoTestSuite) TestDownloadFails(c *C) {
 	snap.AnonDownloadURL = "anon-url"
 	snap.DownloadURL = "AUTH-URL"
 	// simulate a failed download
-	path, err := t.store.Download(snap, nil)
+	path, err := t.store.Download(snap, nil, nil)
 	c.Assert(err, ErrorMatches, "uh, it failed")
 	c.Assert(path, Equals, "")
 	// ... and ensure that the tempfile is removed
@@ -147,7 +147,7 @@ func (t *remoteRepoTestSuite) TestDownloadSyncFails(c *C) {
 	snap.DownloadURL = "AUTH-URL"
 
 	// simulate a failed sync
-	path, err := t.store.Download(snap, nil)
+	path, err := t.store.Download(snap, nil, nil)
 	c.Assert(err, ErrorMatches, "fsync:.*")
 	c.Assert(path, Equals, "")
 	// ... and ensure that the tempfile is removed
@@ -255,7 +255,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryDetails(c *C) {
 	c.Assert(repo, NotNil)
 
 	// the actual test
-	result, err := repo.Snap("hello-world", "edge")
+	result, err := repo.Snap("hello-world", "edge", nil)
 	c.Assert(err, IsNil)
 	c.Check(result.Name(), Equals, "hello-world")
 	c.Check(result.Developer, Equals, "canonical")
@@ -316,7 +316,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryNoDetails(c *C) {
 	c.Assert(repo, NotNil)
 
 	// the actual test
-	result, err := repo.Snap("no-such-pkg", "edge")
+	result, err := repo.Snap("no-such-pkg", "edge", nil)
 	c.Assert(err, NotNil)
 	c.Assert(result, IsNil)
 }
@@ -392,7 +392,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreFind(c *C) {
 	repo := NewUbuntuStoreSnapRepository(&cfg, "")
 	c.Assert(repo, NotNil)
 
-	snaps, err := repo.FindSnaps("foo", "")
+	snaps, err := repo.FindSnaps("foo", "", nil)
 	c.Assert(err, IsNil)
 	c.Assert(snaps, HasLen, 1)
 	c.Check(snaps[0].Name(), Equals, funkyAppName)
@@ -440,7 +440,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryUpdates(c *C) {
 	repo := NewUbuntuStoreSnapRepository(&cfg, "")
 	c.Assert(repo, NotNil)
 
-	results, err := repo.Updates([]string{funkyAppName})
+	results, err := repo.Updates([]string{funkyAppName}, nil)
 	c.Assert(err, IsNil)
 	c.Assert(results, HasLen, 1)
 	c.Assert(results[0].Name(), Equals, funkyAppName)
@@ -540,7 +540,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryAssertion(c *C) {
 	}
 	repo := NewUbuntuStoreSnapRepository(&cfg, "")
 
-	a, err := repo.Assertion(asserts.SnapDeclarationType, "16", "snapidfoo")
+	a, err := repo.Assertion(asserts.SnapDeclarationType, []string{"16", "snapidfoo"}, nil)
 	c.Assert(err, IsNil)
 	c.Check(a, NotNil)
 	c.Check(a.Type(), Equals, asserts.SnapDeclarationType)
@@ -566,7 +566,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryNotFound(c *C) {
 	}
 	repo := NewUbuntuStoreSnapRepository(&cfg, "")
 
-	_, err = repo.Assertion(asserts.SnapDeclarationType, "16", "snapidfoo")
+	_, err = repo.Assertion(asserts.SnapDeclarationType, []string{"16", "snapidfoo"}, nil)
 	c.Check(err, Equals, ErrAssertionNotFound)
 }
 
@@ -595,7 +595,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositorySuggestedCurrency(c *C) {
 	c.Check(repo.SuggestedCurrency(), Equals, "USD")
 
 	// we should soon have a suggested currency
-	result, err := repo.Snap(funkyAppName, "edge")
+	result, err := repo.Snap(funkyAppName, "edge", nil)
 	c.Assert(err, IsNil)
 	c.Assert(result, NotNil)
 	c.Check(repo.SuggestedCurrency(), Equals, "GBP")
@@ -603,7 +603,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositorySuggestedCurrency(c *C) {
 	suggestedCurrency = "EUR"
 
 	// checking the currency updates
-	result, err = repo.Snap(funkyAppName, "edge")
+	result, err = repo.Snap(funkyAppName, "edge", nil)
 	c.Assert(err, IsNil)
 	c.Assert(result, NotNil)
 	c.Check(repo.SuggestedCurrency(), Equals, "EUR")

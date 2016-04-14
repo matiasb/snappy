@@ -237,8 +237,8 @@ func loginUser(c *Command, r *http.Request) Response {
 }
 
 type metarepo interface {
-	Snap(string, string) (*snap.Info, error)
-	FindSnaps(string, string) ([]*snap.Info, error)
+	Snap(string, string, store.Authenticator) (*snap.Info, error)
+	FindSnaps(string, string, store.Authenticator) ([]*snap.Info, error)
 }
 
 var newRemoteRepo = func() metarepo {
@@ -257,8 +257,18 @@ func getSnapInfo(c *Command, r *http.Request) Response {
 	}
 	defer lock.Unlock()
 
+	var authenticator store.Authenticator
+	state := c.d.overlord.State()
+	state.Lock()
+	// TODO: get user from client
+	user, _ := auth.User(state, 1)
+	state.Unlock()
+	if user != nil {
+		authenticator = user.Authenticator()
+	}
+
 	channel := ""
-	remoteSnap, _ := newRemoteRepo().Snap(name, channel)
+	remoteSnap, _ := newRemoteRepo().Snap(name, channel, authenticator)
 
 	installed, err := (&snappy.Overlord{}).Installed()
 	if err != nil {
@@ -356,13 +366,23 @@ func getSnapsInfo(c *Command, r *http.Request) Response {
 	if includeStore {
 		remoteSnapMap = make(map[string]*snap.Info)
 
+		var authenticator store.Authenticator
+		state := c.d.overlord.State()
+		state.Lock()
+		// TODO: get user from client
+		user, _ := auth.User(state, 1)
+		state.Unlock()
+		if user != nil {
+			authenticator = user.Authenticator()
+		}
+
 		// repo.Find("") finds all
 		//
 		// TODO: Instead of ignoring the error from Find:
 		//   * if there are no results, return an error response.
 		//   * If there are results at all (perhaps local), include a
 		//     warning in the response
-		found, _ := newRemoteRepo().FindSnaps(searchTerm, "")
+		found, _ := newRemoteRepo().FindSnaps(searchTerm, "", authenticator)
 
 		sources = append(sources, "store")
 
@@ -575,7 +595,14 @@ func (inst *snapInstruction) install() interface{} {
 		msg = fmt.Sprintf(i18n.G("Install %q snap from %q channel"), inst.pkg, inst.Channel)
 	}
 	chg := state.NewChange("install-snap", msg)
-	ts, err := snapstateInstall(state, inst.pkg, inst.Channel, flags)
+
+	// TODO: get user from client
+	userID := 0
+	user, _ := auth.User(state, 1)
+	if user != nil {
+		userID = user.ID
+	}
+	ts, err := snapstateInstall(state, inst.pkg, inst.Channel, userID, flags)
 	if err == nil {
 		chg.AddAll(ts)
 	}
@@ -839,7 +866,7 @@ func sideloadSnap(c *Command, r *http.Request) Response {
 		state.Lock()
 		msg := fmt.Sprintf(i18n.G("Install local %q snap"), snap)
 		chg := state.NewChange("install-snap", msg)
-		ts, err := snapstateInstall(state, snap, "", flags)
+		ts, err := snapstateInstall(state, snap, "", 0, flags)
 		if err == nil {
 			chg.AddAll(ts)
 		}

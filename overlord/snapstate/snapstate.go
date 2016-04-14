@@ -39,11 +39,12 @@ import (
 // allow exchange in the tests
 var backend managerBackend = &defaultBackend{}
 
-func doInstall(s *state.State, curActive bool, snapName, channel string, flags snappy.InstallFlags) (*state.TaskSet, error) {
+func doInstall(s *state.State, curActive bool, snapName, channel string, userID int, flags snappy.InstallFlags) (*state.TaskSet, error) {
 	// download
 	var prepare *state.Task
 	ss := SnapSetup{
 		Channel: channel,
+		UserID:  userID,
 		Flags:   int(flags),
 	}
 	if osutil.FileExists(snapName) {
@@ -95,7 +96,7 @@ func doInstall(s *state.State, curActive bool, snapName, channel string, flags s
 
 // Install returns a set of tasks for installing snap.
 // Note that the state must be locked by the caller.
-func Install(s *state.State, name, channel string, flags snappy.InstallFlags) (*state.TaskSet, error) {
+func Install(s *state.State, name, channel string, userID int, flags snappy.InstallFlags) (*state.TaskSet, error) {
 	var snapst SnapState
 	err := Get(s, name, &snapst)
 	if err != nil && err != state.ErrNoState {
@@ -105,7 +106,7 @@ func Install(s *state.State, name, channel string, flags snappy.InstallFlags) (*
 		return nil, fmt.Errorf("snap %q already installed", name)
 	}
 
-	return doInstall(s, false, name, channel, flags)
+	return doInstall(s, false, name, channel, userID, flags)
 }
 
 // Update initiates a change updating a snap.
@@ -120,7 +121,7 @@ func Update(s *state.State, name, channel string, flags snappy.InstallFlags) (*s
 		return nil, fmt.Errorf("cannot find snap %q", name)
 	}
 
-	return doInstall(s, snapst.Active, name, channel, flags)
+	return doInstall(s, snapst.Active, name, channel, 0, flags)
 }
 
 // parseSnapspec parses a string like: name[.developer][=version]

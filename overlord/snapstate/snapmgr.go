@@ -25,8 +25,10 @@ import (
 
 	"gopkg.in/tomb.v2"
 
+	"github.com/ubuntu-core/snappy/overlord/auth"
 	"github.com/ubuntu-core/snappy/overlord/state"
 	"github.com/ubuntu-core/snappy/snap"
+	"github.com/ubuntu-core/snappy/store"
 )
 
 // SnapManager is responsible for the installation and removal of snaps.
@@ -45,6 +47,8 @@ type SnapSetup struct {
 
 	// XXX: should be switched to use Revision instead
 	RollbackVersion string `json:"rollback-version,omitempty"`
+
+	UserID int `json:"user-id,omitempty"`
 
 	Flags int `json:"flags,omitempty"`
 
@@ -180,7 +184,17 @@ func (m *SnapManager) doDownloadSnap(t *state.Task, _ *tomb.Tomb) error {
 	}
 
 	pb := &TaskProgressAdapter{task: t}
-	storeInfo, downloadedSnapFile, err := m.backend.Download(ss.Name, ss.Channel, pb)
+
+	// get user authenticator
+	var authenticator store.Authenticator
+	st.Lock()
+	user, _ := auth.User(st, ss.UserID)
+	st.Unlock()
+	if user != nil {
+		authenticator = user.Authenticator()
+	}
+
+	storeInfo, downloadedSnapFile, err := m.backend.Download(ss.Name, ss.Channel, pb, authenticator)
 	if err != nil {
 		return err
 	}

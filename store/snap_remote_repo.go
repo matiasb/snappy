@@ -228,7 +228,7 @@ func (s *SnapUbuntuStoreRepository) checkStoreResponse(resp *http.Response) {
 }
 
 // Snap returns the snap.Info for the store hosted snap with the given name or an error.
-func (s *SnapUbuntuStoreRepository) Snap(name, channel string) (*snap.Info, error) {
+func (s *SnapUbuntuStoreRepository) Snap(name, channel string, auther Authenticator) (*snap.Info, error) {
 
 	u := *s.searchURI // make a copy, so we can mutate it
 
@@ -244,6 +244,9 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string) (*snap.Info, erro
 	// set headers
 	s.applyUbuntuStoreHeaders(req, "")
 	req.Header.Set("X-Ubuntu-Device-Channel", channel)
+	if auther != nil {
+		auther.Authenticate(req)
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -282,7 +285,7 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string) (*snap.Info, erro
 
 // FindSnaps finds  (installable) snaps from the store, matching the
 // given search term.
-func (s *SnapUbuntuStoreRepository) FindSnaps(searchTerm string, channel string) ([]*snap.Info, error) {
+func (s *SnapUbuntuStoreRepository) FindSnaps(searchTerm string, channel string, auther Authenticator) ([]*snap.Info, error) {
 	if channel == "" {
 		channel = release.Get().Channel
 	}
@@ -303,6 +306,9 @@ func (s *SnapUbuntuStoreRepository) FindSnaps(searchTerm string, channel string)
 	// set headers
 	s.applyUbuntuStoreHeaders(req, "")
 	req.Header.Set("X-Ubuntu-Device-Channel", channel)
+	if auther != nil {
+		auther.Authenticate(req)
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -328,7 +334,7 @@ func (s *SnapUbuntuStoreRepository) FindSnaps(searchTerm string, channel string)
 }
 
 // Updates returns the available updates for a list of snap identified by fullname with channel.
-func (s *SnapUbuntuStoreRepository) Updates(installed []string) (snaps []*snap.Info, err error) {
+func (s *SnapUbuntuStoreRepository) Updates(installed []string, auther Authenticator) (snaps []*snap.Info, err error) {
 	jsonData, err := json.Marshal(map[string][]string{"name": installed})
 	if err != nil {
 		return nil, err
@@ -342,6 +348,9 @@ func (s *SnapUbuntuStoreRepository) Updates(installed []string) (snaps []*snap.I
 	// the updates call is a special snowflake right now
 	// (see LP: #1427155)
 	s.applyUbuntuStoreHeaders(req, "application/json")
+	if auther != nil {
+		auther.Authenticate(req)
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -368,7 +377,7 @@ func (s *SnapUbuntuStoreRepository) Updates(installed []string) (snaps []*snap.I
 // Download downloads the given snap and returns its filename.
 // The file is saved in temporary storage, and should be removed
 // after use to prevent the disk from running out of space.
-func (s *SnapUbuntuStoreRepository) Download(remoteSnap *snap.Info, pbar progress.Meter) (path string, err error) {
+func (s *SnapUbuntuStoreRepository) Download(remoteSnap *snap.Info, pbar progress.Meter, auther Authenticator) (path string, err error) {
 	w, err := ioutil.TempFile("", remoteSnap.Name())
 	if err != nil {
 		return "", err
@@ -384,7 +393,7 @@ func (s *SnapUbuntuStoreRepository) Download(remoteSnap *snap.Info, pbar progres
 	}()
 
 	url := remoteSnap.AnonDownloadURL
-	if url == "" {
+	if url == "" || auther != nil {
 		url = remoteSnap.DownloadURL
 	}
 
@@ -393,6 +402,9 @@ func (s *SnapUbuntuStoreRepository) Download(remoteSnap *snap.Info, pbar progres
 		return "", err
 	}
 	s.applyUbuntuStoreHeaders(req, "")
+	if auther != nil {
+		auther.Authenticate(req)
+	}
 
 	if err := download(remoteSnap.Name(), w, req, pbar); err != nil {
 		return "", err
@@ -435,7 +447,7 @@ type assertionSvcError struct {
 }
 
 // Assertion retrivies the assertion for the given type and primary key.
-func (s *SnapUbuntuStoreRepository) Assertion(assertType *asserts.AssertionType, primaryKey ...string) (asserts.Assertion, error) {
+func (s *SnapUbuntuStoreRepository) Assertion(assertType *asserts.AssertionType, primaryKey []string, auther Authenticator) (asserts.Assertion, error) {
 	url, err := s.assertionsURI.Parse(path.Join(assertType.Name, path.Join(primaryKey...)))
 	if err != nil {
 		return nil, err
@@ -447,6 +459,9 @@ func (s *SnapUbuntuStoreRepository) Assertion(assertType *asserts.AssertionType,
 	}
 
 	req.Header.Set("Accept", asserts.MediaType)
+	if auther != nil {
+		auther.Authenticate(req)
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {

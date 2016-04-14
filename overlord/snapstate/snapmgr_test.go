@@ -107,7 +107,7 @@ func (s *snapmgrTestSuite) TestInstallTasks(c *C) {
 	s.state.Lock()
 	defer s.state.Unlock()
 
-	ts, err := snapstate.Install(s.state, "some-snap", "some-channel", 0)
+	ts, err := snapstate.Install(s.state, "some-snap", "some-channel", 0, 0)
 	c.Assert(err, IsNil)
 	verifyInstallUpdateTasks(c, false, ts, s.state)
 }
@@ -156,7 +156,7 @@ func (s *snapmgrTestSuite) TestInstallIntegration(c *C) {
 	defer s.state.Unlock()
 
 	chg := s.state.NewChange("install", "install a snap")
-	ts, err := snapstate.Install(s.state, "some-snap", "some-channel", 0)
+	ts, err := snapstate.Install(s.state, "some-snap", "some-channel", 0, 0)
 	c.Assert(err, IsNil)
 	chg.AddAll(ts)
 
@@ -564,7 +564,7 @@ func (s *snapmgrTestSuite) TestInstallLocalIntegration(c *C) {
 	mockSnap := makeTestSnap(c, `name: mock
 version: 1.0`)
 	chg := s.state.NewChange("install", "install a local snap")
-	ts, err := snapstate.Install(s.state, mockSnap, "", 0)
+	ts, err := snapstate.Install(s.state, mockSnap, "", 0, 0)
 	c.Assert(err, IsNil)
 	chg.AddAll(ts)
 
