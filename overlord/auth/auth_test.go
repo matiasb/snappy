@@ -117,6 +117,31 @@ func (as *authSuite) TestNewUserAddsToExistent(c *C) {
 	c.Check(userFromState, DeepEquals, firstUser)
 }
 
+func (as *authSuite) TestNewUserKeepsLatest(c *C) {
+	as.state.Lock()
+	firstUser, err := auth.NewUser(as.state, "username", "macaroon", []string{"discharge"})
+	as.state.Unlock()
+	c.Check(err, IsNil)
+
+	// re-adding user
+	as.state.Lock()
+	user, err := auth.NewUser(as.state, "username", "new_macaroon", []string{"new_discharge"})
+	as.state.Unlock()
+
+	as.state.Lock()
+	userFromState, err := auth.User(as.state, user.ID)
+	as.state.Unlock()
+	c.Check(err, IsNil)
+	c.Check(userFromState, DeepEquals, user)
+
+	// first user is not available anymore
+	as.state.Lock()
+	userFromState, err = auth.User(as.state, firstUser.ID)
+	as.state.Unlock()
+	c.Check(err, ErrorMatches, "invalid user")
+	c.Check(userFromState, IsNil)
+}
+
 func (as *authSuite) TestCheckMacaroonNoAuthData(c *C) {
 	as.state.Lock()
 	user, err := auth.CheckMacaroon(as.state, "macaroon", []string{"discharge"})
@@ -124,6 +149,35 @@ func (as *authSuite) TestCheckMacaroonNoAuthData(c *C) {
 
 	c.Check(err, IsNil)
 	c.Check(user, IsNil)
+}
+
+func (as *authSuite) TestRemoveUser(c *C) {
+	as.state.Lock()
+	firstUser, err := auth.NewUser(as.state, "a-user", "macaroon", []string{"discharge"})
+	secondUser, err := auth.NewUser(as.state, "username", "macaroon", []string{"discharge"})
+	thirdUser, err := auth.NewUser(as.state, "another", "macaroon", []string{"discharge"})
+	as.state.Unlock()
+	c.Check(err, IsNil)
+
+	as.state.Lock()
+	err = auth.RemoveUser(as.state, "username")
+	as.state.Unlock()
+	c.Check(err, IsNil)
+
+	as.state.Lock()
+	userFromState, err := auth.User(as.state, secondUser.ID)
+	c.Check(err, ErrorMatches, "invalid user")
+	c.Check(userFromState, IsNil)
+
+	userFromState, err = auth.User(as.state, firstUser.ID)
+	c.Check(err, IsNil)
+	c.Check(userFromState, DeepEquals, firstUser)
+
+	userFromState, err = auth.User(as.state, thirdUser.ID)
+	c.Check(err, IsNil)
+	c.Check(userFromState, DeepEquals, thirdUser)
+
+	as.state.Unlock()
 }
 
 func (as *authSuite) TestCheckMacaroonNoValidUser(c *C) {

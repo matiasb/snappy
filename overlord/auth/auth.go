@@ -44,9 +44,15 @@ type UserState struct {
 
 // NewUser tracks a new authenticated user and saves its details in the state
 func NewUser(st *state.State, username, macaroon string, discharges []string) (*UserState, error) {
+	// make sure to remove any previous auth information for this user
+	err := RemoveUser(st, username)
+	if err != nil {
+		return nil, err
+	}
+
 	var authStateData AuthState
 
-	err := st.Get("auth", &authStateData)
+	err = st.Get("auth", &authStateData)
 	if err == state.ErrNoState {
 		authStateData = AuthState{}
 	} else if err != nil {
@@ -66,6 +72,27 @@ func NewUser(st *state.State, username, macaroon string, discharges []string) (*
 	st.Set("auth", authStateData)
 
 	return &authenticatedUser, nil
+}
+
+// RemoveUser removes UserState for user with given username
+func RemoveUser(st *state.State, username string) error {
+	var authStateData AuthState
+
+	err := st.Get("auth", &authStateData)
+	if err == state.ErrNoState {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	for i, user := range authStateData.Users {
+		if user.Username == username {
+			authStateData.Users = append(authStateData.Users[:i], authStateData.Users[i+1:]...)
+			st.Set("auth", authStateData)
+			break
+		}
+	}
+	return nil
 }
 
 // User returns a user from the state given its ID
