@@ -21,9 +21,12 @@ package auth
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"sort"
+
+	"gopkg.in/macaroon.v1"
 
 	"github.com/ubuntu-core/snappy/overlord/state"
 )
@@ -159,6 +162,47 @@ func newMacaroonAuthenticator(macaroon string, discharges []string) *MacaroonAut
 		Macaroon:   macaroon,
 		Discharges: discharges,
 	}
+}
+
+// MacaroonSerialize returns a store-compatible serialized representation of the given macaroon
+func MacaroonSerialize(m *macaroon.Macaroon) (string, error) {
+	marshalled, err := m.MarshalBinary()
+	if err != nil {
+		return "", err
+	}
+	encoded := base64.URLEncoding.EncodeToString(marshalled)
+	return encoded, nil
+}
+
+// base64Decode decodes base64 data that might be missing trailing pad characters
+// (copied from macaroon package; store serialized macaroons miss trailing padding)
+func base64Decode(b64String string) ([]byte, error) {
+	paddedLen := (len(b64String) + 3) / 4 * 4
+	b64data := make([]byte, len(b64String), paddedLen)
+	copy(b64data, b64String)
+	for i := len(b64String); i < paddedLen; i++ {
+		b64data = append(b64data, '=')
+	}
+	data := make([]byte, base64.URLEncoding.DecodedLen(len(b64data)))
+	n, err := base64.URLEncoding.Decode(data, b64data)
+	if err != nil {
+		return nil, err
+	}
+	return data[0:n], nil
+}
+
+// MacaroonDeserialize returns a deserialized macaroon from a given store-compatible serialization
+func MacaroonDeserialize(serializedMacaroon string) (*macaroon.Macaroon, error) {
+	var m macaroon.Macaroon
+	decoded, err := base64Decode(serializedMacaroon)
+	if err != nil {
+		return nil, err
+	}
+	err = m.UnmarshalBinary(decoded)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
 }
 
 // Authenticate will add the store expected Authorization header for macaroons
