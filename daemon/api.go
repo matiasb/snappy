@@ -200,7 +200,13 @@ func loginUser(c *Command, r *http.Request, user *auth.UserState) Response {
 		return InternalError(err.Error())
 	}
 
-	discharge, err := store.DischargeAuthCaveat(loginData.Username, loginData.Password, macaroon, loginData.Otp)
+	// get SSO 3rd party caveat, and request discharge
+	loginCaveat, err := auth.UbuntuoneCaveatForDischarge(macaroon)
+	if err != nil {
+		return InternalError(err.Error())
+	}
+
+	discharge, err := store.DischargeAuthCaveat(loginData.Username, loginData.Password, loginCaveat, loginData.Otp)
 	switch err {
 	case store.ErrAuthenticationNeeds2fa:
 		return SyncResponse(&resp{

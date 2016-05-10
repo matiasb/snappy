@@ -29,6 +29,7 @@ import (
 	"gopkg.in/macaroon.v1"
 
 	"github.com/ubuntu-core/snappy/overlord/state"
+	"github.com/ubuntu-core/snappy/store"
 )
 
 // AuthState represents current authenticated users as tracked in state
@@ -205,12 +206,48 @@ func MacaroonDeserialize(serializedMacaroon string) (*macaroon.Macaroon, error) 
 	return &m, nil
 }
 
+// UbuntuoneCaveatForDischarge returns 3rd party caveat to be discharged by Ubuntuone
+func UbuntuoneCaveatForDischarge(serializedMacaroon string) (string, error) {
+	macaroon, err := MacaroonDeserialize(serializedMacaroon)
+	if err != nil {
+		return "", err
+	}
+
+	caveat_id := ""
+	for _, caveat := range macaroon.Caveats() {
+		if caveat.Location == store.UbuntuoneLocation {
+			caveat_id = caveat.Id
+			break
+		}
+	}
+	if caveat_id == "" {
+		return "", fmt.Errorf("missing ubuntuone caveat")
+	}
+	return caveat_id, nil
+}
+
 // Authenticate will add the store expected Authorization header for macaroons
 func (ma *MacaroonAuthenticator) Authenticate(r *http.Request) {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, `Macaroon root="%s"`, ma.Macaroon)
-	for _, discharge := range ma.Discharges {
-		fmt.Fprintf(&buf, `, discharge="%s"`, discharge)
+
+	// deserialize root (we need signature to do the binding)
+	root, err := MacaroonDeserialize(ma.Macaroon)
+	if err != nil {
+		return
 	}
+
+	for _, d := range ma.Discharges {
+		// TODO: deserialize + prepare_for_request
+		discharge, err := MacaroonDeserialize(d)
+		discharge.Bind(root.Signature())
+
+		serializedDischarge, err := MacaroonSerialize(discharge)
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(&buf, `, discharge="%s"`, serializedDischarge)
+	}
+
 	r.Header.Set("Authorization", buf.String())
 }
