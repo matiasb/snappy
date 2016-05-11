@@ -206,24 +206,19 @@ func MacaroonDeserialize(serializedMacaroon string) (*macaroon.Macaroon, error) 
 	return &m, nil
 }
 
-// UbuntuoneCaveatForDischarge returns 3rd party caveat to be discharged by Ubuntuone
-func UbuntuoneCaveatForDischarge(serializedMacaroon string) (string, error) {
-	macaroon, err := MacaroonDeserialize(serializedMacaroon)
-	if err != nil {
-		return "", err
-	}
-
-	caveat_id := ""
-	for _, caveat := range macaroon.Caveats() {
+// UbuntuoneCaveatForDischarge returns the 3rd party caveat from the macaroon to be discharged by Ubuntuone
+func UbuntuoneCaveatForDischarge(m *macaroon.Macaroon) (string, error) {
+	caveatID := ""
+	for _, caveat := range m.Caveats() {
 		if caveat.Location == store.UbuntuoneLocation {
-			caveat_id = caveat.Id
+			caveatID = caveat.Id
 			break
 		}
 	}
-	if caveat_id == "" {
+	if caveatID == "" {
 		return "", fmt.Errorf("missing ubuntuone caveat")
 	}
-	return caveat_id, nil
+	return caveatID, nil
 }
 
 // Authenticate will add the store expected Authorization header for macaroons
@@ -238,7 +233,6 @@ func (ma *MacaroonAuthenticator) Authenticate(r *http.Request) {
 	}
 
 	for _, d := range ma.Discharges {
-		// TODO: deserialize + prepare_for_request
 		discharge, err := MacaroonDeserialize(d)
 		discharge.Bind(root.Signature())
 

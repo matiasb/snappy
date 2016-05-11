@@ -31,7 +31,8 @@ var (
 	// MyAppsMacaroonACLAPI points to MyApps endpoint to get a ACL macaroon
 	MyAppsMacaroonACLAPI = myappsAPIBase + "dev/api/acl/"
 	ubuntuoneAPIBase     = authURL()
-	UbuntuoneLocation    = authLocation()
+	// UbuntuoneLocation is the Ubuntuone location as defined in the store macaroon
+	UbuntuoneLocation = authLocation()
 	// UbuntuoneDischargeAPI points to SSO endpoint to discharge a macaroon
 	UbuntuoneDischargeAPI = ubuntuoneAPIBase + "/tokens/discharge"
 )

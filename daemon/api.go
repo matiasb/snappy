@@ -195,12 +195,14 @@ func loginUser(c *Command, r *http.Request, user *auth.UserState) Response {
 		return BadRequest("cannot decode login data from request body: %v", err)
 	}
 
-	macaroon, err := store.RequestStoreMacaroon()
+	serializedMacaroon, err := store.RequestStoreMacaroon()
 	if err != nil {
 		return InternalError(err.Error())
 	}
-
-	// get SSO 3rd party caveat, and request discharge
+	macaroon, err := auth.MacaroonDeserialize(serializedMacaroon)
+	if err != nil {
+		return InternalError(err.Error())
+	}
 	loginCaveat, err := auth.UbuntuoneCaveatForDischarge(macaroon)
 	if err != nil {
 		return InternalError(err.Error())
@@ -235,14 +237,14 @@ func loginUser(c *Command, r *http.Request, user *auth.UserState) Response {
 	overlord := c.d.overlord
 	state := overlord.State()
 	state.Lock()
-	_, err = auth.NewUser(state, loginData.Username, macaroon, []string{discharge})
+	_, err = auth.NewUser(state, loginData.Username, serializedMacaroon, []string{discharge})
 	state.Unlock()
 	if err != nil {
 		return InternalError("cannot persist authentication details: %v", err)
 	}
 
 	result := loginResponseData{
-		Macaroon:   macaroon,
+		Macaroon:   serializedMacaroon,
 		Discharges: []string{discharge},
 	}
 	return SyncResponse(result, nil)
