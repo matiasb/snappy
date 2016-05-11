@@ -155,7 +155,7 @@ func (s *authTestSuite) TestDischargeAuthCaveatInvalidLogin(c *C) {
 	UbuntuoneDischargeAPI = mockServer.URL + "/tokens/discharge"
 
 	discharge, err := DischargeAuthCaveat("foo@example.com", "passwd", "third-party-caveat", "")
-	c.Assert(err, ErrorMatches, "cannot get discharge macaroon from store: Provided email/password is not correct.")
+	c.Assert(err, ErrorMatches, "cannot get authorization from store: Provided email/password is not correct.")
 	c.Assert(discharge, Equals, "")
 }
 
@@ -167,7 +167,7 @@ func (s *authTestSuite) TestDischargeAuthCaveatMissingData(c *C) {
 	UbuntuoneDischargeAPI = mockServer.URL + "/tokens/discharge"
 
 	discharge, err := DischargeAuthCaveat("foo@example.com", "passwd", "third-party-caveat", "")
-	c.Assert(err, ErrorMatches, "cannot get discharge macaroon from store: empty macaroon returned")
+	c.Assert(err, ErrorMatches, "cannot get authorization from store: empty macaroon returned")
 	c.Assert(discharge, Equals, "")
 }
 
@@ -179,6 +179,55 @@ func (s *authTestSuite) TestDischargeAuthCaveatError(c *C) {
 	UbuntuoneDischargeAPI = mockServer.URL + "/tokens/discharge"
 
 	discharge, err := DischargeAuthCaveat("foo@example.com", "passwd", "third-party-caveat", "")
-	c.Assert(err, ErrorMatches, "cannot get discharge macaroon from store: server returned status 500")
+	c.Assert(err, ErrorMatches, "cannot get authorization from store: server returned status 500")
+	c.Assert(discharge, Equals, "")
+}
+
+func (s *authTestSuite) TestRefreshDischargeMacaroon(c *C) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, mockStoreReturnDischarge)
+	}))
+	defer mockServer.Close()
+	UbuntuoneRefreshDischargeAPI = mockServer.URL + "/tokens/refresh"
+
+	discharge, err := RefreshDischargeMacaroon("soft-expired-serialized-discharge-macaroon")
+	c.Assert(err, IsNil)
+	c.Assert(discharge, Equals, "the-discharge-macaroon-serialized-data")
+}
+
+func (s *authTestSuite) TestRefreshDischargeMacaroonInvalidLogin(c *C) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(mockStoreInvalidLoginCode)
+		io.WriteString(w, mockStoreInvalidLogin)
+	}))
+	defer mockServer.Close()
+	UbuntuoneRefreshDischargeAPI = mockServer.URL + "/tokens/refresh"
+
+	discharge, err := RefreshDischargeMacaroon("soft-expired-serialized-discharge-macaroon")
+	c.Assert(err, ErrorMatches, "cannot get authorization from store: Provided email/password is not correct.")
+	c.Assert(discharge, Equals, "")
+}
+
+func (s *authTestSuite) TestRefreshDischargeMacaroonMissingData(c *C) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, mockStoreReturnNoMacaroon)
+	}))
+	defer mockServer.Close()
+	UbuntuoneRefreshDischargeAPI = mockServer.URL + "/tokens/refresh"
+
+	discharge, err := RefreshDischargeMacaroon("soft-expired-serialized-discharge-macaroon")
+	c.Assert(err, ErrorMatches, "cannot get authorization from store: empty macaroon returned")
+	c.Assert(discharge, Equals, "")
+}
+
+func (s *authTestSuite) TestRefreshDischargeMacaroonError(c *C) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer mockServer.Close()
+	UbuntuoneRefreshDischargeAPI = mockServer.URL + "/tokens/refresh"
+
+	discharge, err := RefreshDischargeMacaroon("soft-expired-serialized-discharge-macaroon")
+	c.Assert(err, ErrorMatches, "cannot get authorization from store: server returned status 500")
 	c.Assert(discharge, Equals, "")
 }
