@@ -76,6 +76,26 @@ func NewUser(st *state.State, username, macaroon string, discharges []string) (*
 	return &authenticatedUser, nil
 }
 
+// UpdateUserDischarges updates user discharge macaroons
+func UpdateUserDischarges(st *state.State, userID int, discharges []string) error {
+	var authStateData AuthState
+
+	err := st.Get("auth", &authStateData)
+	if err != nil {
+		return err
+	}
+
+	for i := range authStateData.Users {
+		if authStateData.Users[i].ID == userID {
+			authStateData.Users[i].StoreDischarges = discharges
+			st.Set("auth", authStateData)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid user")
+}
+
 // RemoveUser removes a user from the state given its ID
 func RemoveUser(st *state.State, userID int) error {
 	var authStateData AuthState
@@ -234,6 +254,9 @@ func (ma *MacaroonAuthenticator) Authenticate(r *http.Request) {
 
 	for _, d := range ma.Discharges {
 		discharge, err := MacaroonDeserialize(d)
+		if err != nil {
+			return
+		}
 		discharge.Bind(root.Signature())
 
 		serializedDischarge, err := MacaroonSerialize(discharge)
@@ -244,4 +267,21 @@ func (ma *MacaroonAuthenticator) Authenticate(r *http.Request) {
 	}
 
 	r.Header.Set("Authorization", buf.String())
+}
+
+// Refresh will update the discharge macaroon if needed (update discharges in state after a successful request? remove if 401?)
+func (ma *MacaroonAuthenticator) Refresh(r *http.Request) error {
+	for i, d := range ma.Discharges {
+		discharge, err := MacaroonDeserialize(d)
+		if err != nil {
+			return err
+		}
+		if discharge.Location == store.UbuntuoneLocation {
+			refreshedDischarge, err := store.RefreshDischargeMacaroon(discharge)
+			if err != nil {
+				return err
+			}
+			ma.Discharges[i] = refreshedDischarge
+		}
+	}
 }

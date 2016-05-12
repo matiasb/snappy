@@ -215,7 +215,7 @@ func NewUbuntuStoreSnapRepository(cfg *SnapUbuntuStoreConfig, storeID string) *S
 }
 
 // small helper that sets the correct http headers for the ubuntu store
-func (s *SnapUbuntuStoreRepository) applyUbuntuStoreHeaders(req *http.Request, accept string, auther Authenticator) {
+func (s *SnapUbuntuStoreRepository) applyUbuntuStoreHeaders(req *http.Request, accept, channel string, auther Authenticator) {
 	if auther != nil {
 		auther.Authenticate(req)
 	}
@@ -225,6 +225,10 @@ func (s *SnapUbuntuStoreRepository) applyUbuntuStoreHeaders(req *http.Request, a
 	}
 	req.Header.Set("Accept", accept)
 
+	if channel == "" {
+		channel = "stable"
+	}
+	req.Header.Set("X-Ubuntu-Device-Channel", channel)
 	req.Header.Set("X-Ubuntu-Architecture", string(arch.UbuntuArchitecture()))
 	req.Header.Set("X-Ubuntu-Release", release.Series)
 	req.Header.Set("X-Ubuntu-Wire-Protocol", UbuntuCoreWireProtocol)
@@ -298,8 +302,7 @@ func (s *SnapUbuntuStoreRepository) getPurchasesFromURL(url *url.URL, channel st
 		return nil, err
 	}
 
-	s.applyUbuntuStoreHeaders(req, "", auther)
-	req.Header.Set("X-Ubuntu-Device-Channel", channel)
+	s.applyUbuntuStoreHeaders(req, "", channel, auther)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -427,8 +430,7 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string, auther Authentica
 	}
 
 	// set headers
-	s.applyUbuntuStoreHeaders(req, "", auther)
-	req.Header.Set("X-Ubuntu-Device-Channel", channel)
+	s.applyUbuntuStoreHeaders(req, "", channel, auther)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -440,6 +442,13 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string, auther Authentica
 	switch {
 	case resp.StatusCode == 404:
 		return nil, ErrSnapNotFound
+	case resp.StatusCode == 401:
+		www_authenticate := resp.Header.Get("WWW-Authenticate")
+		if strings.Contains(www_authenticate, "needs_refresh=1") {
+			return nil, ErrAuthenticationNeedsRefresh
+		} else {
+			return nil, ErrInvalidCredentials
+		}
 	case resp.StatusCode != 200:
 		tpl := "Ubuntu CPI service returned unexpected HTTP status code %d while looking for snap %q in channel %q"
 		if oops := resp.Header.Get("X-Oops-Id"); oops != "" {
@@ -474,10 +483,6 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string, auther Authentica
 // FindSnaps finds  (installable) snaps from the store, matching the
 // given search term.
 func (s *SnapUbuntuStoreRepository) FindSnaps(searchTerm string, channel string, auther Authenticator) ([]*snap.Info, error) {
-	if channel == "" {
-		channel = "stable"
-	}
-
 	u := *s.searchURI // make a copy, so we can mutate it
 	q := u.Query()
 	q.Set("q", searchTerm)
@@ -489,8 +494,7 @@ func (s *SnapUbuntuStoreRepository) FindSnaps(searchTerm string, channel string,
 	}
 
 	// set headers
-	s.applyUbuntuStoreHeaders(req, "", auther)
-	req.Header.Set("X-Ubuntu-Device-Channel", channel)
+	s.applyUbuntuStoreHeaders(req, "", channel, auther)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -498,7 +502,15 @@ func (s *SnapUbuntuStoreRepository) FindSnaps(searchTerm string, channel string,
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	switch {
+	case resp.StatusCode == 401:
+		www_authenticate := resp.Header.Get("WWW-Authenticate")
+		if strings.Contains(www_authenticate, "needs_refresh=1") {
+			return nil, ErrAuthenticationNeedsRefresh
+		} else {
+			return nil, ErrInvalidCredentials
+		}
+	case resp.StatusCode != 200:
 		return nil, fmt.Errorf("received an unexpected http response code (%v) when trying to search via %q", resp.Status, req.URL)
 	}
 
@@ -539,7 +551,7 @@ func (s *SnapUbuntuStoreRepository) Updates(installed []string, auther Authentic
 	// set headers
 	// the updates call is a special snowflake right now
 	// (see LP: #1427155)
-	s.applyUbuntuStoreHeaders(req, "application/json", auther)
+	s.applyUbuntuStoreHeaders(req, "application/json", "", auther)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -590,7 +602,7 @@ func (s *SnapUbuntuStoreRepository) Download(remoteSnap *snap.Info, pbar progres
 	if err != nil {
 		return "", err
 	}
-	s.applyUbuntuStoreHeaders(req, "", auther)
+	s.applyUbuntuStoreHeaders(req, "", "", auther)
 
 	if err := download(remoteSnap.Name(), w, req, pbar); err != nil {
 		return "", err
@@ -609,7 +621,15 @@ var download = func(name string, w io.Writer, req *http.Request, pbar progress.M
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	switch {
+	case resp.StatusCode == 401:
+		www_authenticate := resp.Header.Get("WWW-Authenticate")
+		if strings.Contains(www_authenticate, "needs_refresh=1") {
+			return ErrAuthenticationNeedsRefresh
+		} else {
+			return ErrInvalidCredentials
+		}
+	case resp.StatusCode != 200:
 		return &ErrDownload{Code: resp.StatusCode, URL: req.URL}
 	}
 

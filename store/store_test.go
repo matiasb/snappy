@@ -160,15 +160,17 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryHeaders(c *C) {
 	req, err := http.NewRequest("GET", "http://example.com", nil)
 	c.Assert(err, IsNil)
 
-	t.store.applyUbuntuStoreHeaders(req, "", nil)
+	t.store.applyUbuntuStoreHeaders(req, "", "beta", nil)
 
+	c.Assert(req.Header.Get("X-Ubuntu-Device-Channel"), Equals, "beta")
 	c.Assert(req.Header.Get("X-Ubuntu-Release"), Equals, "16")
 	c.Check(req.Header.Get("Accept"), Equals, "application/hal+json")
 
-	t.store.applyUbuntuStoreHeaders(req, "application/json", nil)
+	t.store.applyUbuntuStoreHeaders(req, "application/json", "", nil)
 
 	c.Check(req.Header.Get("Accept"), Equals, "application/json")
 	c.Assert(req.Header.Get("Authorization"), Equals, "")
+	c.Assert(req.Header.Get("X-Ubuntu-Device-Channel"), Equals, "stable")
 }
 
 const (

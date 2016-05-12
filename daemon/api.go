@@ -394,6 +394,15 @@ func searchStore(c *Command, r *http.Request, user *auth.UserState) Response {
 
 	remoteRepo := newRemoteRepo()
 	found, err := remoteRepo.FindSnaps(query.Get("q"), query.Get("channel"), auther)
+	if err == store.ErrAuthenticationNeedsRefresh {
+		// refresh could be called from store directly? (refresh + re-authenticate)
+		err = auther.Refresh()
+		if err != nil {
+			return InternalError("%v", err)
+		}
+		// TODO: save refresed discharges
+		found, err := remoteRepo.FindSnaps(query.Get("q"), query.Get("channel"), auther)
+	}
 	if err != nil {
 		return InternalError("%v", err)
 	}

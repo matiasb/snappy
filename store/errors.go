@@ -40,6 +40,9 @@ var (
 
 	// ErrInvalidCredentials is returned on login error
 	ErrInvalidCredentials = errors.New("invalid credentials")
+
+	// ErrAuthenticationNeedsRefresh is returned if store authentication needs refresh
+	ErrAuthenticationNeedsRefresh = errors.New("authentication needs refresh")
 )
 
 // ErrDownload represents a download error
