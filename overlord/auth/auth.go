@@ -169,7 +169,7 @@ NextUser:
 
 // Authenticator returns MacaroonAuthenticator for current authenticated user represented by UserState
 func (us *UserState) Authenticator() *MacaroonAuthenticator {
-	return newMacaroonAuthenticator(us.StoreMacaroon, us.StoreDischarges)
+	return newMacaroonAuthenticator(us.ID, us.StoreMacaroon, us.StoreDischarges)
 }
 
 // MacaroonAuthenticator is a store authenticator based on macaroons
@@ -178,7 +178,7 @@ type MacaroonAuthenticator struct {
 	Discharges []string
 }
 
-func newMacaroonAuthenticator(macaroon string, discharges []string) *MacaroonAuthenticator {
+func newMacaroonAuthenticator(userID int, macaroon string, discharges []string) *MacaroonAuthenticator {
 	return &MacaroonAuthenticator{
 		Macaroon:   macaroon,
 		Discharges: discharges,
@@ -270,18 +270,20 @@ func (ma *MacaroonAuthenticator) Authenticate(r *http.Request) {
 }
 
 // Refresh will update the discharge macaroon if needed (update discharges in state after a successful request? remove if 401?)
-func (ma *MacaroonAuthenticator) Refresh(r *http.Request) error {
+func (ma *MacaroonAuthenticator) Refresh() error {
+	// track refresh called? => update state later?
 	for i, d := range ma.Discharges {
 		discharge, err := MacaroonDeserialize(d)
 		if err != nil {
 			return err
 		}
-		if discharge.Location == store.UbuntuoneLocation {
-			refreshedDischarge, err := store.RefreshDischargeMacaroon(discharge)
+		if discharge.Location() == store.UbuntuoneLocation {
+			refreshedDischarge, err := store.RefreshDischargeMacaroon(d)
 			if err != nil {
 				return err
 			}
 			ma.Discharges[i] = refreshedDischarge
 		}
 	}
+	return nil
 }

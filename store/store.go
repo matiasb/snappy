@@ -238,6 +238,32 @@ func (s *SnapUbuntuStoreRepository) applyUbuntuStoreHeaders(req *http.Request, a
 	}
 }
 
+func doStoreRequest(client *http.Client, req *http.Request, auther Authenticator) (*http.Response, error) {
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("%v\n", req)
+	fmt.Printf("%v\n", resp)
+
+	if resp.StatusCode == 401 && auther != nil {
+		www_authenticate := resp.Header.Get("WWW-Authenticate")
+		if strings.Contains(www_authenticate, "needs_refresh=1") {
+			err = auther.Refresh()
+			if err != nil {
+				return nil, err
+			}
+			auther.Authenticate(req)
+			defer resp.Body.Close()
+			resp, err = client.Do(req)
+			fmt.Printf("%v\n", req)
+			fmt.Printf("%v\n", resp)
+		}
+	}
+	return resp, err
+}
+
 // read all the available metadata from the store response and cache
 func (s *SnapUbuntuStoreRepository) checkStoreResponse(resp *http.Response) {
 	suggestedCurrency := resp.Header.Get("X-Suggested-Currency")
@@ -432,7 +458,8 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string, auther Authentica
 	// set headers
 	s.applyUbuntuStoreHeaders(req, "", channel, auther)
 
-	resp, err := s.client.Do(req)
+	resp, err := doStoreRequest(s.client, req, auther)
+	// resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +523,8 @@ func (s *SnapUbuntuStoreRepository) FindSnaps(searchTerm string, channel string,
 	// set headers
 	s.applyUbuntuStoreHeaders(req, "", channel, auther)
 
-	resp, err := s.client.Do(req)
+	resp, err := doStoreRequest(s.client, req, auther)
+	// resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -604,7 +632,7 @@ func (s *SnapUbuntuStoreRepository) Download(remoteSnap *snap.Info, pbar progres
 	}
 	s.applyUbuntuStoreHeaders(req, "", "", auther)
 
-	if err := download(remoteSnap.Name(), w, req, pbar); err != nil {
+	if err := download(remoteSnap.Name(), w, req, pbar, auther); err != nil {
 		return "", err
 	}
 
@@ -612,10 +640,11 @@ func (s *SnapUbuntuStoreRepository) Download(remoteSnap *snap.Info, pbar progres
 }
 
 // download writes an http.Request showing a progress.Meter
-var download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+var download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, auther Authenticator) error {
 	client := &http.Client{}
 
-	resp, err := client.Do(req)
+	resp, err := doStoreRequest(client, req, auther)
+	// resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

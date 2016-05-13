@@ -42,7 +42,7 @@ import (
 type remoteRepoTestSuite struct {
 	store *SnapUbuntuStoreRepository
 
-	origDownloadFunc func(string, io.Writer, *http.Request, progress.Meter) error
+	origDownloadFunc func(string, io.Writer, *http.Request, progress.Meter, Authenticator) error
 }
 
 func TestStore(t *testing.T) { TestingT(t) }
@@ -53,6 +53,10 @@ type fakeAuthenticator struct{}
 
 func (fa *fakeAuthenticator) Authenticate(r *http.Request) {
 	r.Header.Set("Authorization", "Authorization-details")
+}
+
+func (fa *fakeAuthenticator) Refresh() error {
+	return nil
 }
 
 func (t *remoteRepoTestSuite) SetUpTest(c *C) {
@@ -68,7 +72,7 @@ func (t *remoteRepoTestSuite) TearDownTest(c *C) {
 
 func (t *remoteRepoTestSuite) TestDownloadOK(c *C) {
 
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, auther Authenticator) error {
 		c.Check(req.URL.String(), Equals, "anon-url")
 		w.Write([]byte("I was downloaded"))
 		return nil
@@ -89,7 +93,7 @@ func (t *remoteRepoTestSuite) TestDownloadOK(c *C) {
 }
 
 func (t *remoteRepoTestSuite) TestAuthenticatedDownloadDoesNotUseAnonURL(c *C) {
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, auther Authenticator) error {
 		// check authorization is set
 		authorization := req.Header.Get("Authorization")
 		c.Check(authorization, Equals, "Authorization-details")
@@ -116,7 +120,7 @@ func (t *remoteRepoTestSuite) TestAuthenticatedDownloadDoesNotUseAnonURL(c *C) {
 
 func (t *remoteRepoTestSuite) TestDownloadFails(c *C) {
 	var tmpfile *os.File
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, auther Authenticator) error {
 		tmpfile = w.(*os.File)
 		return fmt.Errorf("uh, it failed")
 	}
@@ -135,7 +139,7 @@ func (t *remoteRepoTestSuite) TestDownloadFails(c *C) {
 
 func (t *remoteRepoTestSuite) TestDownloadSyncFails(c *C) {
 	var tmpfile *os.File
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, auther Authenticator) error {
 		tmpfile = w.(*os.File)
 		w.Write([]byte("sync will fail"))
 		err := tmpfile.Close()

@@ -392,17 +392,32 @@ func searchStore(c *Command, r *http.Request, user *auth.UserState) Response {
 		return InternalError("%v", err)
 	}
 
+	// user
+	// auther := user.Authenticator()
+	// ...
+	// st.lock/unlock + auth.updateDischarges(st, user.ID, auther.Discharges())
+
 	remoteRepo := newRemoteRepo()
 	found, err := remoteRepo.FindSnaps(query.Get("q"), query.Get("channel"), auther)
-	if err == store.ErrAuthenticationNeedsRefresh {
-		// refresh could be called from store directly? (refresh + re-authenticate)
-		err = auther.Refresh()
-		if err != nil {
-			return InternalError("%v", err)
-		}
-		// TODO: save refresed discharges
-		found, err := remoteRepo.FindSnaps(query.Get("q"), query.Get("channel"), auther)
-	}
+
+	// overlord := c.d.overlord
+	// state := overlord.State()
+	// state.Lock()
+	// err = auth.UpdateUserDischarges(state, auther.UserID, auther.Discharges)
+	// state.Unlock()
+	// if err != nil {
+	// 	return InternalError("cannot persist authentication details: %v", err)
+	// }
+
+	// if err == store.ErrAuthenticationNeedsRefresh {
+	// 	// refresh could be called from store directly? (refresh + re-authenticate)
+	// 	err = auther.Refresh()
+	// 	if err != nil {
+	// 		return InternalError("%v", err)
+	// 	}
+	// 	// TODO: save refresed discharges
+	// 	found, err := remoteRepo.FindSnaps(query.Get("q"), query.Get("channel"), auther)
+	// }
 	if err != nil {
 		return InternalError("%v", err)
 	}

@@ -42,6 +42,7 @@ var (
 // Authenticator interface to set required authorization headers for requests to the store
 type Authenticator interface {
 	Authenticate(r *http.Request)
+	Refresh() error
 }
 
 type ssoMsg struct {
