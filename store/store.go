@@ -250,15 +250,16 @@ func doStoreRequest(client *http.Client, req *http.Request, auther Authenticator
 	if resp.StatusCode == 401 && auther != nil {
 		www_authenticate := resp.Header.Get("WWW-Authenticate")
 		if strings.Contains(www_authenticate, "needs_refresh=1") {
-			err = auther.Refresh()
-			if err != nil {
-				return nil, err
-			}
-			auther.Authenticate(req)
-			defer resp.Body.Close()
-			resp, err = client.Do(req)
-			fmt.Printf("%v\n", req)
-			fmt.Printf("%v\n", resp)
+			return nil, ErrAuthenticationNeedsRefresh
+// 			err = auther.Refresh()
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 			auther.Authenticate(req)
+// 			defer resp.Body.Close()
+// 			resp, err = client.Do(req)
+// 			fmt.Printf("%v\n", req)
+// 			fmt.Printf("%v\n", resp)
 		}
 	}
 	return resp, err

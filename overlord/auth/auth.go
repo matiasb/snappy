@@ -96,6 +96,26 @@ func UpdateUserDischarges(st *state.State, userID int, discharges []string) erro
 	return fmt.Errorf("invalid user")
 }
 
+// UpdateUser updates user discharge macaroons
+func UpdateUser(st *state.State, user *UserState) error {
+	var authStateData AuthState
+
+	err := st.Get("auth", &authStateData)
+	if err != nil {
+		return err
+	}
+
+	for i := range authStateData.Users {
+		if authStateData.Users[i].ID == user.ID {
+			authStateData.Users[i] = *user
+			st.Set("auth", authStateData)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid user")
+}
+
 // RemoveUser removes a user from the state given its ID
 func RemoveUser(st *state.State, userID int) error {
 	var authStateData AuthState
@@ -165,6 +185,24 @@ NextUser:
 		return &user, nil
 	}
 	return nil, ErrInvalidAuth
+}
+
+// Refresh will update the discharge macaroon if needed (update discharges in state after a successful request? remove if 401?)
+func (us *UserState) RefreshDischarges() error {
+	for i, d := range us.StoreDischarges {
+		discharge, err := MacaroonDeserialize(d)
+		if err != nil {
+			return err
+		}
+		if discharge.Location() == store.UbuntuoneLocation {
+			refreshedDischarge, err := store.RefreshDischargeMacaroon(d)
+			if err != nil {
+				return err
+			}
+			us.StoreDischarges[i] = refreshedDischarge
+		}
+	}
+	return nil
 }
 
 // Authenticator returns MacaroonAuthenticator for current authenticated user represented by UserState

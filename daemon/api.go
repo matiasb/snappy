@@ -387,10 +387,14 @@ func searchStore(c *Command, r *http.Request, user *auth.UserState) Response {
 
 	query := r.URL.Query()
 
-	auther, err := c.d.auther(r)
-	if err != nil && err != auth.ErrInvalidAuth {
-		return InternalError("%v", err)
+	var auther store.Authenticator
+	if user != nil {
+		auther = user.Authenticator()
 	}
+	// auther, err := c.d.auther(r)
+	// if err != nil && err != auth.ErrInvalidAuth {
+	// 	return InternalError("%v", err)
+	// }
 
 	// user
 	// auther := user.Authenticator()
@@ -410,15 +414,21 @@ func searchStore(c *Command, r *http.Request, user *auth.UserState) Response {
 	// 	return InternalError("cannot persist authentication details: %v", err)
 	// }
 
-	// if err == store.ErrAuthenticationNeedsRefresh {
-	// 	// refresh could be called from store directly? (refresh + re-authenticate)
-	// 	err = auther.Refresh()
-	// 	if err != nil {
-	// 		return InternalError("%v", err)
-	// 	}
-	// 	// TODO: save refresed discharges
-	// 	found, err := remoteRepo.FindSnaps(query.Get("q"), query.Get("channel"), auther)
-	// }
+	if err == store.ErrAuthenticationNeedsRefresh {
+		err = user.RefreshDischarges()
+		if err != nil {
+			return InternalError("%v", err)
+		}
+		state := c.d.overlord.State()
+		state.Lock()
+		err = auth.UpdateUser(state, user)
+		state.Unlock()
+		if err != nil {
+			return InternalError("%v", err)
+		}
+		auther = user.Authenticator()
+		found, err = remoteRepo.FindSnaps(query.Get("q"), query.Get("channel"), auther)
+	}
 	if err != nil {
 		return InternalError("%v", err)
 	}
@@ -504,7 +514,27 @@ func getSnapsInfo(c *Command, r *http.Request, user *auth.UserState) Response {
 		//   * if there are no results, return an error response.
 		//   * If there are results at all (perhaps local), include a
 		//     warning in the response
-		found, _ := remoteRepo.FindSnaps(searchTerm, "", auther)
+		found, err := remoteRepo.FindSnaps(searchTerm, "", auther)
+
+		if err == store.ErrAuthenticationNeedsRefresh {
+			err = user.RefreshDischarges()
+			if err != nil {
+				return InternalError("%v", err)
+			}
+			state := c.d.overlord.State()
+			state.Lock()
+			err = auth.UpdateUser(state, user)
+			state.Unlock()
+			if err != nil {
+				return InternalError("%v", err)
+			}
+			auther = user.Authenticator()
+			found, err = remoteRepo.FindSnaps(searchTerm, "", auther)
+		}
+
+
+
+
 		suggestedCurrency = remoteRepo.SuggestedCurrency()
 
 		sources = append(sources, "store")
