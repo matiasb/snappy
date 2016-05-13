@@ -395,6 +395,7 @@ func searchStore(c *Command, r *http.Request, user *auth.UserState) Response {
 	// user
 	// auther := user.Authenticator()
 	// ...
+	// try + user.RefreshDischarge() + auther + retry
 	// st.lock/unlock + auth.updateDischarges(st, user.ID, auther.Discharges())
 
 	remoteRepo := newRemoteRepo()

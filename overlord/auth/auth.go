@@ -169,7 +169,7 @@ NextUser:
 
 // Authenticator returns MacaroonAuthenticator for current authenticated user represented by UserState
 func (us *UserState) Authenticator() *MacaroonAuthenticator {
-	return newMacaroonAuthenticator(us.ID, us.StoreMacaroon, us.StoreDischarges)
+	return newMacaroonAuthenticator(us.StoreMacaroon, us.StoreDischarges)
 }
 
 // MacaroonAuthenticator is a store authenticator based on macaroons
@@ -178,7 +178,7 @@ type MacaroonAuthenticator struct {
 	Discharges []string
 }
 
-func newMacaroonAuthenticator(userID int, macaroon string, discharges []string) *MacaroonAuthenticator {
+func newMacaroonAuthenticator(macaroon string, discharges []string) *MacaroonAuthenticator {
 	return &MacaroonAuthenticator{
 		Macaroon:   macaroon,
 		Discharges: discharges,
