@@ -236,3 +236,22 @@ func (ma *MacaroonAuthenticator) Authenticate(r *http.Request) {
 
 	r.Header.Set("Authorization", buf.String())
 }
+
+// Refresh will request a refreshed discharge macaroon
+func (ma *MacaroonAuthenticator) Refresh() error {
+	// TODO: where/when to update the user state?
+	for i, d := range ma.Discharges {
+		discharge, err := MacaroonDeserialize(d)
+		if err != nil {
+			return err
+		}
+		if discharge.Location() == store.UbuntuoneLocation {
+			refreshedDischarge, err := store.RefreshDischargeMacaroon(d)
+			if err != nil {
+				return err
+			}
+			ma.Discharges[i] = refreshedDischarge
+		}
+	}
+	return nil
+}

@@ -289,6 +289,27 @@ func (s *SnapUbuntuStoreRepository) setUbuntuStoreHeaders(req *http.Request, cha
 	}
 }
 
+func doStoreRequest(client *http.Client, req *http.Request, auther Authenticator) (*http.Response, error) {
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode == 401 && auther != nil {
+		www_authenticate := resp.Header.Get("WWW-Authenticate")
+		if strings.Contains(www_authenticate, "needs_refresh=1") {
+			err = auther.Refresh()
+			if err != nil {
+				return nil, err
+			}
+			auther.Authenticate(req)
+			defer resp.Body.Close()
+			resp, err = client.Do(req)
+		}
+	}
+	return resp, err
+}
+
 // read all the available metadata from the store response and cache
 func (s *SnapUbuntuStoreRepository) checkStoreResponse(resp *http.Response) {
 	suggestedCurrency := resp.Header.Get("X-Suggested-Currency")
@@ -355,7 +376,7 @@ func (s *SnapUbuntuStoreRepository) getPurchasesFromURL(url *url.URL, channel st
 
 	s.setUbuntuStoreHeaders(req, channel, false, auther)
 
-	resp, err := s.client.Do(req)
+	resp, err := doStoreRequest(s.client, req, auther)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +503,7 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string, devmode bool, aut
 	// set headers
 	s.setUbuntuStoreHeaders(req, channel, devmode, auther)
 
-	resp, err := s.client.Do(req)
+	resp, err := doStoreRequest(s.client, req, auther)
 	if err != nil {
 		return nil, err
 	}
@@ -551,7 +572,7 @@ func (s *SnapUbuntuStoreRepository) Find(searchTerm string, channel string, auth
 	// set headers
 	s.setUbuntuStoreHeaders(req, channel, false, auther)
 
-	resp, err := s.client.Do(req)
+	resp, err := doStoreRequest(s.client, req, auther)
 	if err != nil {
 		return nil, err
 	}
@@ -666,7 +687,7 @@ func (s *SnapUbuntuStoreRepository) ListRefresh(installed []*RefreshCandidate, a
 
 	s.setUbuntuStoreHeaders(req, "", false, auther)
 
-	resp, err := s.client.Do(req)
+	resp, err := doStoreRequest(s.client, req, auther)
 	if err != nil {
 		return nil, err
 	}
@@ -739,7 +760,7 @@ func (s *SnapUbuntuStoreRepository) Download(name string, downloadInfo *snap.Dow
 	}
 	s.setUbuntuStoreHeaders(req, "", false, auther)
 
-	if err := download(name, w, req, pbar); err != nil {
+	if err := download(name, w, req, pbar, auther); err != nil {
 		return "", err
 	}
 
@@ -747,10 +768,10 @@ func (s *SnapUbuntuStoreRepository) Download(name string, downloadInfo *snap.Dow
 }
 
 // download writes an http.Request showing a progress.Meter
-var download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+var download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, auther Authenticator) error {
 	client := &http.Client{}
 
-	resp, err := client.Do(req)
+	resp, err := doStoreRequest(client, req, auther)
 	if err != nil {
 		return err
 	}
@@ -797,7 +818,7 @@ func (s *SnapUbuntuStoreRepository) Assertion(assertType *asserts.AssertionType,
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", asserts.MediaType)
 
-	resp, err := s.client.Do(req)
+	resp, err := doStoreRequest(s.client, req, auther)
 	if err != nil {
 		return nil, err
 	}
