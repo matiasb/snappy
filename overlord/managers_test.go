@@ -251,7 +251,7 @@ apps:
 		DetailsURI: detailsURL,
 	}
 
-	mStore := store.NewUbuntuStoreSnapRepository(&storeCfg, "")
+	mStore := store.NewUbuntuStoreSnapRepository(&storeCfg, "", nil)
 
 	st := ms.o.State()
 	st.Lock()
