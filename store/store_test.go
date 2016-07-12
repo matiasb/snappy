@@ -49,7 +49,7 @@ type remoteRepoTestSuite struct {
 	logbuf *bytes.Buffer
 	user   *auth.UserState
 
-	origDownloadFunc func(string, io.Writer, *http.Request, progress.Meter) error
+	origDownloadFunc func(string, io.Writer, *http.Request, progress.Meter, *SnapUbuntuStoreRepository, *auth.UserState) error
 }
 
 func TestStore(t *testing.T) { TestingT(t) }
@@ -76,6 +76,15 @@ func makeTestDischarge() (*macaroon.Macaroon, error) {
 	}
 
 	return m, nil
+}
+
+func makeTestRefreshDischargeResponse() (string, error) {
+	m, err := macaroon.New([]byte("shared-key"), "refreshed-third-party-caveat", UbuntuoneLocation)
+	if err != nil {
+		return "", err
+	}
+
+	return MacaroonSerialize(m)
 }
 
 func createTestUser(userID int, root, discharge *macaroon.Macaroon) (*auth.UserState, error) {
@@ -145,7 +154,7 @@ func (t *remoteRepoTestSuite) expectedAuthorization(c *C, user *auth.UserState) 
 
 func (t *remoteRepoTestSuite) TestDownloadOK(c *C) {
 
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
 		c.Check(req.URL.String(), Equals, "anon-url")
 		w.Write([]byte("I was downloaded"))
 		return nil
@@ -166,10 +175,9 @@ func (t *remoteRepoTestSuite) TestDownloadOK(c *C) {
 }
 
 func (t *remoteRepoTestSuite) TestAuthenticatedDownloadDoesNotUseAnonURL(c *C) {
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
-		// check authorization is set
-		authorization := req.Header.Get("Authorization")
-		c.Check(authorization, Equals, t.expectedAuthorization(c, t.user))
+	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
+		// check user is set
+		c.Check(user, Equals, t.user)
 		c.Check(req.UserAgent(), Equals, userAgent)
 
 		c.Check(req.URL.String(), Equals, "AUTH-URL")
@@ -193,7 +201,7 @@ func (t *remoteRepoTestSuite) TestAuthenticatedDownloadDoesNotUseAnonURL(c *C) {
 
 func (t *remoteRepoTestSuite) TestDownloadFails(c *C) {
 	var tmpfile *os.File
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
 		tmpfile = w.(*os.File)
 		return fmt.Errorf("uh, it failed")
 	}
@@ -212,7 +220,7 @@ func (t *remoteRepoTestSuite) TestDownloadFails(c *C) {
 
 func (t *remoteRepoTestSuite) TestDownloadSyncFails(c *C) {
 	var tmpfile *os.File
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
 		tmpfile = w.(*os.File)
 		w.Write([]byte("sync will fail"))
 		err := tmpfile.Close()
@@ -237,7 +245,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryHeaders(c *C) {
 	req, err := http.NewRequest("GET", "http://example.com", nil)
 	c.Assert(err, IsNil)
 
-	t.store.setUbuntuStoreHeaders(req, "", false, nil)
+	t.store.setUbuntuStoreHeaders(req, "", false)
 
 	c.Check(req.UserAgent(), Equals, userAgent)
 
@@ -245,7 +253,7 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryHeaders(c *C) {
 	c.Check(req.Header.Get("X-Ubuntu-Device-Channel"), Equals, "")
 	c.Check(req.Header.Get("X-Ubuntu-Confinement"), Equals, "")
 
-	t.store.setUbuntuStoreHeaders(req, "chan", true, nil)
+	t.store.setUbuntuStoreHeaders(req, "chan", true)
 
 	c.Check(req.Header.Get("Authorization"), Equals, "")
 	c.Check(req.Header.Get("X-Ubuntu-Device-Channel"), Equals, "chan")
@@ -511,6 +519,59 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryDetailsSetsAuth(c *C) {
 	snap, err := repo.Snap("hello-world", "edge", false, t.user)
 	c.Assert(snap, NotNil)
 	c.Assert(err, IsNil)
+	c.Check(snap.MustBuy, Equals, false)
+}
+
+func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryDetailsRefreshAuth(c *C) {
+	refresh, err := makeTestRefreshDischargeResponse()
+	c.Assert(err, IsNil)
+	c.Check(t.user.StoreDischarges[0], Not(Equals), refresh)
+
+	// mock refresh response
+	mockSSOServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, fmt.Sprintf(`{"discharge_macaroon": "%s"}`, refresh))
+	}))
+	defer mockSSOServer.Close()
+	UbuntuoneRefreshDischargeAPI = mockSSOServer.URL + "/tokens/refresh"
+
+	// mock purchases response
+	mockPurchasesServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c.Check(r.UserAgent(), Equals, userAgent)
+		io.WriteString(w, mockPurchaseJSON)
+	}))
+	c.Assert(mockPurchasesServer, NotNil)
+	defer mockPurchasesServer.Close()
+	purchasesURI, err := url.Parse(mockPurchasesServer.URL + "/dev/api/snap-purchases/")
+	c.Assert(err, IsNil)
+
+	// mock store response (requiring auth refresh)
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c.Check(r.UserAgent(), Equals, userAgent)
+
+		authorization := r.Header.Get("Authorization")
+		c.Check(authorization, Equals, t.expectedAuthorization(c, t.user))
+		if t.user.StoreDischarges[0] == refresh {
+			io.WriteString(w, MockDetailsJSON)
+		} else {
+			w.Header().Set("WWW-Authenticate", "Macaroon needs_refresh=1")
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	c.Assert(mockServer, NotNil)
+	defer mockServer.Close()
+	detailsURI, err := url.Parse(mockServer.URL + "/details/")
+	c.Assert(err, IsNil)
+
+	cfg := SnapUbuntuStoreConfig{
+		DetailsURI:   detailsURI,
+		PurchasesURI: purchasesURI,
+	}
+	repo := NewUbuntuStoreSnapRepository(&cfg, "", nil)
+	c.Assert(repo, NotNil)
+
+	snap, err := repo.Snap("hello-world", "edge", false, t.user)
+	c.Assert(err, IsNil)
+	c.Assert(snap, NotNil)
 	c.Check(snap.MustBuy, Equals, false)
 }
 

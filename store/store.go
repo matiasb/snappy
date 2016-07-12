@@ -119,7 +119,7 @@ type SnapUbuntuStoreRepository struct {
 	// reused http client
 	client *http.Client
 
-	authContext *auth.AuthContext
+	authContext auth.AuthContext
 
 	mu                sync.Mutex
 	suggestedCurrency string
@@ -238,7 +238,7 @@ type searchResults struct {
 var detailFields = getStructFields(snapDetails{})
 
 // NewUbuntuStoreSnapRepository creates a new SnapUbuntuStoreRepository with the given access configuration and for given the store id.
-func NewUbuntuStoreSnapRepository(cfg *SnapUbuntuStoreConfig, storeID string, authContext *auth.AuthContext) *SnapUbuntuStoreRepository {
+func NewUbuntuStoreSnapRepository(cfg *SnapUbuntuStoreConfig, storeID string, authContext auth.AuthContext) *SnapUbuntuStoreRepository {
 	if cfg == nil {
 		cfg = &defaultConfig
 	}
@@ -319,15 +319,61 @@ func authenticate(r *http.Request, user *auth.UserState) {
 	r.Header.Set("Authorization", buf.String())
 }
 
-// build a new http.Request with headers for the store
-func (s *SnapUbuntuStoreRepository) newRequest(method, urlStr string, body io.Reader, user *auth.UserState) (*http.Request, error) {
-	req, err := http.NewRequest(method, urlStr, body)
+// refresh will request a refreshed discharge macaroon for the user
+func refresh(user *auth.UserState) error {
+	for i, d := range user.StoreDischarges {
+		discharge, err := MacaroonDeserialize(d)
+		if err != nil {
+			return err
+		}
+		if discharge.Location() == UbuntuoneLocation {
+			refreshedDischarge, err := RefreshDischargeMacaroon(d)
+			if err != nil {
+				return err
+			}
+			user.StoreDischarges[i] = refreshedDischarge
+		}
+	}
+	return nil
+}
+
+// doStoreRequest does an authenticated request to the store handling a potential macaroon refresh required if needed
+func (s *SnapUbuntuStoreRepository) doStoreRequest(client *http.Client, req *http.Request, user *auth.UserState) (*http.Response, error) {
+	if user != nil {
+		authenticate(req, user)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
-	if user != nil {
-		authenticate(req, user)
+	if resp.StatusCode == 401 && user != nil {
+		www_authenticate := resp.Header.Get("WWW-Authenticate")
+		if strings.Contains(www_authenticate, "needs_refresh=1") {
+			err = refresh(user)
+			if err != nil {
+				return nil, err
+			}
+			if s.authContext != nil {
+				err = s.authContext.UpdateUser(user)
+				if err != nil {
+					return nil, err
+				}
+			}
+			authenticate(req, user)
+			defer resp.Body.Close()
+			resp, err = client.Do(req)
+		}
+	}
+	return resp, err
+}
+
+// build a new http.Request with headers for the store
+func (s *SnapUbuntuStoreRepository) newRequest(method, urlStr string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, urlStr, body)
+	if err != nil {
+		return nil, err
 	}
 
 	req.Header.Set("User-Agent", userAgent)
@@ -344,11 +390,7 @@ func (s *SnapUbuntuStoreRepository) newRequest(method, urlStr string, body io.Re
 }
 
 // small helper that sets the correct http headers for the ubuntu store
-func (s *SnapUbuntuStoreRepository) setUbuntuStoreHeaders(req *http.Request, channel string, devmode bool, user *auth.UserState) {
-	if user != nil {
-		authenticate(req, user)
-	}
-
+func (s *SnapUbuntuStoreRepository) setUbuntuStoreHeaders(req *http.Request, channel string, devmode bool) {
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/hal+json,application/json")
 	req.Header.Set("X-Ubuntu-Architecture", string(arch.UbuntuArchitecture()))
@@ -431,9 +473,9 @@ func (s *SnapUbuntuStoreRepository) getPurchasesFromURL(url *url.URL, channel st
 		return nil, err
 	}
 
-	s.setUbuntuStoreHeaders(req, channel, false, user)
+	s.setUbuntuStoreHeaders(req, channel, false)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.doStoreRequest(s.client, req, user)
 	if err != nil {
 		return nil, err
 	}
@@ -565,12 +607,12 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string, devmode bool, use
 
 	u.RawQuery = query.Encode()
 
-	req, err := s.newRequest("GET", u.String(), nil, user)
+	req, err := s.newRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := s.client.Do(req)
+	resp, err := s.doStoreRequest(s.client, req, user)
 	if err != nil {
 		return nil, err
 	}
@@ -671,12 +713,12 @@ func (s *SnapUbuntuStoreRepository) Find(searchTerm string, channel string, user
 	}
 	u.RawQuery = q.Encode()
 
-	req, err := s.newRequest("GET", u.String(), nil, user)
+	req, err := s.newRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := s.client.Do(req)
+	resp, err := s.doStoreRequest(s.client, req, user)
 	if err != nil {
 		return nil, err
 	}
@@ -789,9 +831,9 @@ func (s *SnapUbuntuStoreRepository) ListRefresh(installed []*RefreshCandidate, u
 		return nil, err
 	}
 
-	s.setUbuntuStoreHeaders(req, "", false, user)
+	s.setUbuntuStoreHeaders(req, "", false)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.doStoreRequest(s.client, req, user)
 	if err != nil {
 		return nil, err
 	}
@@ -862,9 +904,9 @@ func (s *SnapUbuntuStoreRepository) Download(name string, downloadInfo *snap.Dow
 	if err != nil {
 		return "", err
 	}
-	s.setUbuntuStoreHeaders(req, "", false, user)
+	s.setUbuntuStoreHeaders(req, "", false)
 
-	if err := download(name, w, req, pbar); err != nil {
+	if err := download(name, w, req, pbar, s, user); err != nil {
 		return "", err
 	}
 
@@ -872,10 +914,10 @@ func (s *SnapUbuntuStoreRepository) Download(name string, downloadInfo *snap.Dow
 }
 
 // download writes an http.Request showing a progress.Meter
-var download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter) error {
+var download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
 	client := &http.Client{}
 
-	resp, err := client.Do(req)
+	resp, err := s.doStoreRequest(client, req, user)
 	if err != nil {
 		return err
 	}
@@ -922,7 +964,7 @@ func (s *SnapUbuntuStoreRepository) Assertion(assertType *asserts.AssertionType,
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", asserts.MediaType)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.doStoreRequest(s.client, req, user)
 	if err != nil {
 		return nil, err
 	}
@@ -1048,10 +1090,10 @@ func (s *SnapUbuntuStoreRepository) Buy(options *BuyOptions) (*BuyResult, error)
 		return nil, err
 	}
 
-	s.setUbuntuStoreHeaders(req, options.Channel, false, options.User)
+	s.setUbuntuStoreHeaders(req, options.Channel, false)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.client.Do(req)
+	resp, err := s.doStoreRequest(s.client, req, options.User)
 	if err != nil {
 		return nil, err
 	}

@@ -184,24 +184,29 @@ NextUser:
 	return nil, ErrInvalidAuth
 }
 
-// AuthContext helps keeping track and updating users in the state.
-type AuthContext struct {
+// An AuthContext handles user updates.
+type AuthContext interface {
+	UpdateUser(user *UserState) error
+}
+
+// AuthStateContext helps keeping track and updating users in the state.
+type AuthStateContext struct {
 	state *state.State
 }
 
 // NewAuthContext returns an AuthContext for state.
-func NewAuthContext(st *state.State) *AuthContext {
-	return &AuthContext{state: st}
+func NewAuthStateContext(st *state.State) *AuthStateContext {
+	return &AuthStateContext{state: st}
 }
 
 // UpdateUser updates user in state.
-func (ac *AuthContext) UpdateUser(user *UserState) error {
+func (asc *AuthStateContext) UpdateUser(user *UserState) error {
 	var authStateData AuthState
 
-	ac.state.Lock()
-	defer ac.state.Unlock()
+	asc.state.Lock()
+	defer asc.state.Unlock()
 
-	err := ac.state.Get("auth", &authStateData)
+	err := asc.state.Get("auth", &authStateData)
 	if err != nil {
 		return err
 	}
@@ -209,7 +214,7 @@ func (ac *AuthContext) UpdateUser(user *UserState) error {
 	for i := range authStateData.Users {
 		if authStateData.Users[i].ID == user.ID {
 			authStateData.Users[i] = *user
-			ac.state.Set("auth", authStateData)
+			asc.state.Set("auth", authStateData)
 			return nil
 		}
 	}
