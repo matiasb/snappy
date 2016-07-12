@@ -56,6 +56,16 @@ func TestStore(t *testing.T) { TestingT(t) }
 
 var _ = Suite(&remoteRepoTestSuite{})
 
+type fakeAuthContext struct{
+	c    *C
+	user *auth.UserState
+}
+
+func (fac *fakeAuthContext) UpdateUser(u *auth.UserState) error {
+	fac.c.Assert(u, DeepEquals, fac.user)
+	return nil
+}
+
 func makeTestMacaroon() (*macaroon.Macaroon, error) {
 	m, err := macaroon.New([]byte("secret"), "some-id", "location")
 	if err != nil {
@@ -562,11 +572,13 @@ func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryDetailsRefreshAuth(c *C) 
 	detailsURI, err := url.Parse(mockServer.URL + "/details/")
 	c.Assert(err, IsNil)
 
+	authContext := &fakeAuthContext{c, t.user}
+
 	cfg := SnapUbuntuStoreConfig{
 		DetailsURI:   detailsURI,
 		PurchasesURI: purchasesURI,
 	}
-	repo := NewUbuntuStoreSnapRepository(&cfg, "", nil)
+	repo := NewUbuntuStoreSnapRepository(&cfg, "", authContext)
 	c.Assert(repo, NotNil)
 
 	snap, err := repo.Snap("hello-world", "edge", false, t.user)
