@@ -183,3 +183,36 @@ NextUser:
 	}
 	return nil, ErrInvalidAuth
 }
+
+// AuthContext helps keeping track and updating users in the state.
+type AuthContext struct {
+	state *state.State
+}
+
+// NewAuthContext returns an AuthContext for state.
+func NewAuthContext(st *state.State) *AuthContext {
+	return &AuthContext{state: st}
+}
+
+// UpdateUser updates user in state.
+func (ac *AuthContext) UpdateUser(user *UserState) error {
+	var authStateData AuthState
+
+	ac.state.Lock()
+	defer ac.state.Unlock()
+
+	err := ac.state.Get("auth", &authStateData)
+	if err != nil {
+		return err
+	}
+
+	for i := range authStateData.Users {
+		if authStateData.Users[i].ID == user.ID {
+			authStateData.Users[i] = *user
+			ac.state.Set("auth", authStateData)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid user")
+}
