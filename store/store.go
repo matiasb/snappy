@@ -337,23 +337,24 @@ func refresh(user *auth.UserState) error {
 	return nil
 }
 
-// doStoreRequest does an authenticated request to the store handling a potential macaroon refresh required if needed
+// doStoreRequest does an authenticated request to the store handling a potential retry if a macaroon refresh is needed
 func (s *SnapUbuntuStoreRepository) doStoreRequest(client *http.Client, req *http.Request, user *auth.UserState) (*http.Response, error) {
 	if user != nil {
 		authenticate(req, user)
 	}
 
-	var r1 io.ReadCloser
-	var r2 io.ReadCloser
+	// get a copy of req.Body for reusing if a refresh is needed
+	var err error
+	var buf []byte
+	var body io.ReadCloser
 	if req.Body != nil {
-		buf, err := ioutil.ReadAll(req.Body)
+		buf, err = ioutil.ReadAll(req.Body)
 		if err != nil {
 			return nil, err
 		}
-		r1 = ioutil.NopCloser(bytes.NewBuffer(buf))
-		r2 = ioutil.NopCloser(bytes.NewBuffer(buf))
+		body = ioutil.NopCloser(bytes.NewBuffer(buf))
 	}
-	req.Body = r1
+	req.Body = body
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -374,7 +375,10 @@ func (s *SnapUbuntuStoreRepository) doStoreRequest(client *http.Client, req *htt
 				}
 			}
 			authenticate(req, user)
-			req.Body = r2
+			if buf != nil {
+				body = ioutil.NopCloser(bytes.NewBuffer(buf))
+				req.Body = body
+			}
 			defer resp.Body.Close()
 			resp, err = client.Do(req)
 		}
