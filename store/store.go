@@ -337,25 +337,49 @@ func refresh(user *auth.UserState) error {
 	return nil
 }
 
-// doStoreRequest does an authenticated request to the store handling a potential retry if a macaroon refresh is needed
-func (s *SnapUbuntuStoreRepository) doStoreRequest(client *http.Client, req *http.Request, user *auth.UserState) (*http.Response, error) {
+func (s *SnapUbuntuStoreRepository) newStoreRequest(method, urlStr string, body io.Reader, user *auth.UserState, accept, channel string, devmode bool) (*http.Request, error) {
+	req, err := http.NewRequest(method, urlStr, body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", userAgent)
+	if accept == "" {
+		req.Header.Set("Accept", "application/hal+json")
+	} else {
+		req.Header.Set("Accept", accept)
+	}
+	req.Header.Set("X-Ubuntu-Architecture", string(arch.UbuntuArchitecture()))
+	req.Header.Set("X-Ubuntu-Series", release.Series)
+	req.Header.Set("X-Ubuntu-Release", release.Series)
+	req.Header.Set("X-Ubuntu-Wire-Protocol", UbuntuCoreWireProtocol)
+
+	if channel != "" {
+		req.Header.Set("X-Ubuntu-Device-Channel", channel)
+	}
+
+	if devmode {
+		req.Header.Set("X-Ubuntu-Confinement", "devmode")
+	}
+
+	if s.storeID != "" {
+		req.Header.Set("X-Ubuntu-Store", s.storeID)
+	}
+
 	if user != nil {
 		authenticate(req, user)
 	}
+	return req, nil
+}
 
-	// get a copy of req.Body for reusing if a refresh is needed
-	var err error
-	var buf []byte
-	var body io.ReadCloser
-	if req.Body != nil {
-		buf, err = ioutil.ReadAll(req.Body)
-		if err != nil {
-			return nil, err
-		}
-		body = ioutil.NopCloser(bytes.NewBuffer(buf))
+// doStoreRequest does an authenticated request to the store handling a potential retry if a macaroon refresh is needed
+func (s *SnapUbuntuStoreRepository) doStoreRequest(user *auth.UserState, client *http.Client, method, urlStr string, body []byte, accept, channel string, devmode bool) (*http.Response, error) {
+	var reqBody io.ReadCloser
+	if body != nil {
+		reqBody = ioutil.NopCloser(bytes.NewBuffer(body))
 	}
-	req.Body = body
 
+	req, err := s.newStoreRequest(method, urlStr, reqBody, user, accept, channel, devmode)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -374,57 +398,15 @@ func (s *SnapUbuntuStoreRepository) doStoreRequest(client *http.Client, req *htt
 					return nil, err
 				}
 			}
-			authenticate(req, user)
-			if buf != nil {
-				body = ioutil.NopCloser(bytes.NewBuffer(buf))
-				req.Body = body
+			if body != nil {
+				reqBody = ioutil.NopCloser(bytes.NewBuffer(body))
 			}
+			req, _ := s.newStoreRequest(method, urlStr, reqBody, user, accept, channel, devmode)
 			defer resp.Body.Close()
 			resp, err = client.Do(req)
 		}
 	}
 	return resp, err
-}
-
-// build a new http.Request with headers for the store
-func (s *SnapUbuntuStoreRepository) newRequest(method, urlStr string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, urlStr, body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/hal+json")
-	req.Header.Set("X-Ubuntu-Architecture", string(arch.UbuntuArchitecture()))
-	req.Header.Set("X-Ubuntu-Series", release.Series)
-	req.Header.Set("X-Ubuntu-Wire-Protocol", UbuntuCoreWireProtocol)
-
-	if s.storeID != "" {
-		req.Header.Set("X-Ubuntu-Store", s.storeID)
-	}
-
-	return req, nil
-}
-
-// small helper that sets the correct http headers for the ubuntu store
-func (s *SnapUbuntuStoreRepository) setUbuntuStoreHeaders(req *http.Request, channel string, devmode bool) {
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/hal+json,application/json")
-	req.Header.Set("X-Ubuntu-Architecture", string(arch.UbuntuArchitecture()))
-	req.Header.Set("X-Ubuntu-Release", release.Series)
-	req.Header.Set("X-Ubuntu-Wire-Protocol", UbuntuCoreWireProtocol)
-
-	if channel != "" {
-		req.Header.Set("X-Ubuntu-Device-Channel", channel)
-	}
-
-	if devmode {
-		req.Header.Set("X-Ubuntu-Confinement", "devmode")
-	}
-
-	if s.storeID != "" {
-		req.Header.Set("X-Ubuntu-Store", s.storeID)
-	}
 }
 
 func (s *SnapUbuntuStoreRepository) extractSuggestedCurrency(resp *http.Response) {
@@ -485,14 +467,7 @@ func (s *SnapUbuntuStoreRepository) getPurchasesFromURL(url *url.URL, channel st
 		return nil, fmt.Errorf("cannot obtain known purchases from store: no authentication credentials provided")
 	}
 
-	req, err := http.NewRequest("GET", url.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	s.setUbuntuStoreHeaders(req, channel, false)
-
-	resp, err := s.doStoreRequest(s.client, req, user)
+	resp, err := s.doStoreRequest(user, s.client, "GET", url.String(), nil, "", channel, false)
 	if err != nil {
 		return nil, err
 	}
@@ -624,12 +599,7 @@ func (s *SnapUbuntuStoreRepository) Snap(name, channel string, devmode bool, use
 
 	u.RawQuery = query.Encode()
 
-	req, err := s.newRequest("GET", u.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.doStoreRequest(s.client, req, user)
+	resp, err := s.doStoreRequest(user, s.client, "GET", u.String(), nil, "", "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -730,30 +700,25 @@ func (s *SnapUbuntuStoreRepository) Find(searchTerm string, channel string, user
 	}
 	u.RawQuery = q.Encode()
 
-	req, err := s.newRequest("GET", u.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.doStoreRequest(s.client, req, user)
+	resp, err := s.doStoreRequest(user, s.client, "GET", u.String(), nil, "", "", false)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("received an unexpected http response code (%v) when trying to search via %q", resp.Status, req.URL)
+		return nil, fmt.Errorf("received an unexpected http response code (%v) when trying to search via %q", resp.Status, u.String())
 	}
 
 	if ct := resp.Header.Get("Content-Type"); ct != "application/hal+json" {
-		return nil, fmt.Errorf("received an unexpected content type (%q) when trying to search via %q", ct, req.URL)
+		return nil, fmt.Errorf("received an unexpected content type (%q) when trying to search via %q", ct, u.String())
 	}
 
 	var searchData searchResults
 
 	dec := json.NewDecoder(resp.Body)
 	if err := dec.Decode(&searchData); err != nil {
-		return nil, fmt.Errorf("cannot decode reply (got %v) when trying to search via %q", err, req.URL)
+		return nil, fmt.Errorf("cannot decode reply (got %v) when trying to search via %q", err, u.String())
 	}
 
 	snaps := make([]*snap.Info, len(searchData.Payload.Packages))
@@ -843,14 +808,7 @@ func (s *SnapUbuntuStoreRepository) ListRefresh(installed []*RefreshCandidate, u
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", s.bulkURI.String(), bytes.NewBuffer([]byte(jsonData)))
-	if err != nil {
-		return nil, err
-	}
-
-	s.setUbuntuStoreHeaders(req, "", false)
-
-	resp, err := s.doStoreRequest(s.client, req, user)
+	resp, err := s.doStoreRequest(user, s.client, "POST", s.bulkURI.String(), []byte(jsonData), "", "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -917,13 +875,7 @@ func (s *SnapUbuntuStoreRepository) Download(name string, downloadInfo *snap.Dow
 		url = downloadInfo.DownloadURL
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", err
-	}
-	s.setUbuntuStoreHeaders(req, "", false)
-
-	if err := download(name, w, req, pbar, s, user); err != nil {
+	if err := download(name, w, pbar, url, s, user); err != nil {
 		return "", err
 	}
 
@@ -931,17 +883,17 @@ func (s *SnapUbuntuStoreRepository) Download(name string, downloadInfo *snap.Dow
 }
 
 // download writes an http.Request showing a progress.Meter
-var download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
+var download = func(name string, w io.Writer, pbar progress.Meter, url string, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
 	client := &http.Client{}
 
-	resp, err := s.doStoreRequest(client, req, user)
+	resp, err := s.doStoreRequest(user, client, "GET", url, nil, "", "", false)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return &ErrDownload{Code: resp.StatusCode, URL: req.URL}
+		return &ErrDownload{Code: resp.StatusCode, URL: resp.Request.URL}
 	}
 
 	if pbar != nil {
@@ -970,15 +922,7 @@ func (s *SnapUbuntuStoreRepository) Assertion(assertType *asserts.AssertionType,
 		return nil, err
 	}
 
-	req, err := http.NewRequest("GET", url.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", asserts.MediaType)
-
-	resp, err := s.doStoreRequest(s.client, req, user)
+	resp, err := s.doStoreRequest(user, s.client, "GET", url.String(), nil, asserts.MediaType, "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -1099,15 +1043,7 @@ func (s *SnapUbuntuStoreRepository) Buy(options *BuyOptions) (*BuyResult, error)
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", s.purchasesURI.String(), bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	s.setUbuntuStoreHeaders(req, options.Channel, false)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.doStoreRequest(s.client, req, options.User)
+	resp, err := s.doStoreRequest(options.User, s.client, "POST", s.purchasesURI.String(), jsonData, "application/json", options.Channel, false)
 	if err != nil {
 		return nil, err
 	}

@@ -49,7 +49,7 @@ type remoteRepoTestSuite struct {
 	logbuf *bytes.Buffer
 	user   *auth.UserState
 
-	origDownloadFunc func(string, io.Writer, *http.Request, progress.Meter, *SnapUbuntuStoreRepository, *auth.UserState) error
+	origDownloadFunc func(string, io.Writer, progress.Meter, string, *SnapUbuntuStoreRepository, *auth.UserState) error
 }
 
 func TestStore(t *testing.T) { TestingT(t) }
@@ -164,8 +164,8 @@ func (t *remoteRepoTestSuite) expectedAuthorization(c *C, user *auth.UserState) 
 
 func (t *remoteRepoTestSuite) TestDownloadOK(c *C) {
 
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
-		c.Check(req.URL.String(), Equals, "anon-url")
+	download = func(name string, w io.Writer, pbar progress.Meter, url string, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
+		c.Check(url, Equals, "anon-url")
 		w.Write([]byte("I was downloaded"))
 		return nil
 	}
@@ -185,12 +185,11 @@ func (t *remoteRepoTestSuite) TestDownloadOK(c *C) {
 }
 
 func (t *remoteRepoTestSuite) TestAuthenticatedDownloadDoesNotUseAnonURL(c *C) {
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
+	download = func(name string, w io.Writer, pbar progress.Meter, url string, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
 		// check user is set
 		c.Check(user, Equals, t.user)
-		c.Check(req.UserAgent(), Equals, userAgent)
 
-		c.Check(req.URL.String(), Equals, "AUTH-URL")
+		c.Check(url, Equals, "AUTH-URL")
 		w.Write([]byte("I was downloaded"))
 		return nil
 	}
@@ -211,7 +210,7 @@ func (t *remoteRepoTestSuite) TestAuthenticatedDownloadDoesNotUseAnonURL(c *C) {
 
 func (t *remoteRepoTestSuite) TestDownloadFails(c *C) {
 	var tmpfile *os.File
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
+	download = func(name string, w io.Writer, pbar progress.Meter, url string, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
 		tmpfile = w.(*os.File)
 		return fmt.Errorf("uh, it failed")
 	}
@@ -230,7 +229,7 @@ func (t *remoteRepoTestSuite) TestDownloadFails(c *C) {
 
 func (t *remoteRepoTestSuite) TestDownloadSyncFails(c *C) {
 	var tmpfile *os.File
-	download = func(name string, w io.Writer, req *http.Request, pbar progress.Meter, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
+	download = func(name string, w io.Writer, pbar progress.Meter, url string, s *SnapUbuntuStoreRepository, user *auth.UserState) error {
 		tmpfile = w.(*os.File)
 		w.Write([]byte("sync will fail"))
 		err := tmpfile.Close()
@@ -249,25 +248,6 @@ func (t *remoteRepoTestSuite) TestDownloadSyncFails(c *C) {
 	c.Assert(path, Equals, "")
 	// ... and ensure that the tempfile is removed
 	c.Assert(osutil.FileExists(tmpfile.Name()), Equals, false)
-}
-
-func (t *remoteRepoTestSuite) TestUbuntuStoreRepositoryHeaders(c *C) {
-	req, err := http.NewRequest("GET", "http://example.com", nil)
-	c.Assert(err, IsNil)
-
-	t.store.setUbuntuStoreHeaders(req, "", false)
-
-	c.Check(req.UserAgent(), Equals, userAgent)
-
-	c.Check(req.Header.Get("X-Ubuntu-Release"), Equals, "16")
-	c.Check(req.Header.Get("X-Ubuntu-Device-Channel"), Equals, "")
-	c.Check(req.Header.Get("X-Ubuntu-Confinement"), Equals, "")
-
-	t.store.setUbuntuStoreHeaders(req, "chan", true)
-
-	c.Check(req.Header.Get("Authorization"), Equals, "")
-	c.Check(req.Header.Get("X-Ubuntu-Device-Channel"), Equals, "chan")
-	c.Check(req.Header.Get("X-Ubuntu-Confinement"), Equals, "devmode")
 }
 
 const (
