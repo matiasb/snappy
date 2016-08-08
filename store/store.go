@@ -352,6 +352,38 @@ func refreshMacaroon(user *auth.UserState) error {
 	return nil
 }
 
+// refreshDeviceSession will set or refresh the device session in the state
+func (s *Store) refreshDeviceSession(device *auth.DeviceState) error {
+	nonce, err := RequestStoreDeviceNonce()
+	if err != nil {
+		return err
+	}
+
+	serialProof, err := s.authContext.SerialProof(nonce)
+	if err != nil {
+		return err
+	}
+
+	serialAssertion, err := s.authContext.Serial()
+	if err != nil {
+		return err
+	}
+
+	session, err := RequestDeviceSession(serialAssertion, serialProof, device.SessionMacaroon)
+	if err != nil {
+		return err
+	}
+	// TODO: deserialize macaroon and extract expiration date?
+	// TODO: store expiration timestamp?
+
+	device.SessionMacaroon = session
+	err = s.authContext.UpdateDevice(device)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // authenticateDevice will add the store expected Macaroon X-Device-Authorization header for device
 func (s *Store) authenticateDevice(r *http.Request) {
 	if s.authContext != nil {
@@ -360,9 +392,15 @@ func (s *Store) authenticateDevice(r *http.Request) {
 			logger.Debugf("cannot get device from state: %v", err)
 			return
 		}
-		if device.SessionMacaroon != "" {
-			r.Header.Set("X-Device-Authorization", fmt.Sprintf(`Macaroon root="%s"`, device.SessionMacaroon))
+		// TODO: check if session needs refresh too
+		if device.SessionMacaroon == "" {
+			err = s.refreshDeviceSession(device)
+			if err != nil {
+				logger.Debugf("cannot get device session from store: %v", err)
+				return
+			}
 		}
+		r.Header.Set("X-Device-Authorization", fmt.Sprintf(`Macaroon root="%s"`, device.SessionMacaroon))
 	}
 }
 
