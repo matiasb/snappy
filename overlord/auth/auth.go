@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/snapcore/snapd/asserts"
+	"github.com/snapcore/snapd/overlord/assertstate"
 	"github.com/snapcore/snapd/overlord/state"
 )
 
@@ -211,6 +213,8 @@ type AuthContext interface {
 	Device() (*DeviceState, error)
 	UpdateDevice(device *DeviceState) error
 	UpdateUser(user *UserState) error
+	Serial() ([]byte, error)
+	SerialProof(nonce string) ([]byte, error)
 }
 
 // authContext helps keeping track and updating users in the state.
@@ -245,4 +249,34 @@ func (ac *authContext) UpdateUser(user *UserState) error {
 	defer ac.state.Unlock()
 
 	return UpdateUser(ac.state, user)
+}
+
+// Serial returns the serialized serial assertion of the device.
+func (ac *authContext) Serial() ([]byte, error) {
+	ac.state.Lock()
+	db := assertstate.DB(ac.state)
+	device, err := Device(ac.state)
+	ac.state.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	serialAssertion, err := db.Find(asserts.SerialType, map[string]string{"brand-id": device.Brand, "model": device.Model, "serial": device.Serial})
+	if err != nil {
+		return nil, err
+	}
+
+	encodedAssertion := asserts.Encode(serialAssertion)
+	return encodedAssertion, nil
+}
+
+// SerialProof returns a serialized proof of the device key based on the nonce.
+func (ac *authContext) SerialProof(nonce string) ([]byte, error) {
+	proof, err := asserts.SignWithoutAuthority(asserts.SerialProofType, map[string]interface{}{"nonce": nonce}, nil, ac.privKey)
+	if err != nil {
+		return nil, err
+	}
+
+	encodedAssertion := asserts.Encode(proof)
+	return encodedAssertion, nil
 }
