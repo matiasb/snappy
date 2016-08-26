@@ -526,13 +526,12 @@ func (s *Store) newRequest(reqOptions *requestOptions, user *auth.UserState) (*h
 		if err != nil {
 			return nil, err
 		}
-		// TODO: enable when device registration is available, this will set initial device session
-		// if device.SessionMacaroon == "" {
-		// 	err = s.refreshDeviceSession()
-		// 	if err != nil {
-		// 		return nil, err
-		// 	}
-		// }
+		if device.SessionMacaroon == "" {
+			err = s.refreshDeviceSession()
+			if err != nil {
+				return nil, err
+			}
+		}
 		authenticateDevice(req, device)
 	}
 
