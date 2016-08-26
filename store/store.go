@@ -404,9 +404,8 @@ func (s *Store) refreshUser(user *auth.UserState) error {
 
 // refreshDeviceSession will set or refresh the device session in the state
 func (s *Store) refreshDeviceSession() error {
-	if s.authContext != nil {
-		logger.Debugf("cannot get device from state: no authContext")
-		return nil
+	if s.authContext == nil {
+		return fmt.Errorf("cannot get device from state: no authContext")
 	}
 
 	device, err := s.authContext.Device()
@@ -444,7 +443,9 @@ func (s *Store) refreshDeviceSession() error {
 
 // authenticateDevice will add the store expected Macaroon X-Device-Authorization header for device
 func authenticateDevice(r *http.Request, device *auth.DeviceState) {
-	r.Header.Set("X-Device-Authorization", fmt.Sprintf(`Macaroon root="%s"`, device.SessionMacaroon))
+	if device.SessionMacaroon != "" {
+		r.Header.Set("X-Device-Authorization", fmt.Sprintf(`Macaroon root="%s"`, device.SessionMacaroon))
+	}
 }
 
 func (s *Store) setStoreID(r *http.Request) {
@@ -522,11 +523,17 @@ func (s *Store) newRequest(reqOptions *requestOptions, user *auth.UserState) (*h
 
 	if s.authContext != nil {
 		device, err := s.authContext.Device()
-		// TODO: update error handling once device registration/auth enabled
-		// if device.SessionMacaroon == "" => err = s.refreshDeviceSession()
-		if device != nil && err == nil {
-			authenticateDevice(req, device)
+		if err != nil {
+			return nil, err
 		}
+		// TODO: enable when device registration is available, this will set initial device session
+		// if device.SessionMacaroon == "" {
+		// 	err = s.refreshDeviceSession()
+		// 	if err != nil {
+		// 		return nil, err
+		// 	}
+		// }
+		authenticateDevice(req, device)
 	}
 
 	if user != nil {
